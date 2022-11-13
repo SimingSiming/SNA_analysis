@@ -1,0 +1,465 @@
+---
+title: "eUSR"
+author: "Yuning Li, Siming Su"
+date: "9/27/2022"
+output: pdf_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Library setup 
+```{r}
+library(statnet)
+library(ergm)
+library(igraph)
+library(dplyr)
+library(network)
+library(ggplot2)
+```
+
+
+## Import data 
+```{r}
+week6_online <- read.csv("week6_on_cleaned.csv")
+week9_online <- read.csv("week9_on_cleaned.csv")
+
+week6_online <- week6_online[,-1]
+```
+
+
+
+## grade shift
+```{r}
+grade <- c('A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'F')
+gpa <- c(4, 3.7, 3.3, 3.0, 2.7, 2.3, 2.0, 1.7, 0)
+
+week6_online$mid_gpa <- 0
+for (i in 1:nrow(week6_online)){
+  week6_online$mid_gpa[i] <- gpa[match(week6_online$midterm_grade[i], grade)]
+}
+
+week9_online$final_gpa <- 0
+for (i in 1:nrow(week9_online)){
+  week9_online$final_gpa[i] <- gpa[match(week9_online$final_grade[i], grade)]
+}
+
+common_id <- intersect(week6_online$Id, week9_online$Id)
+
+week9_online$grade_shift <- 2
+for (i in 1:nrow(week9_online)){
+  if (week9_online$Id[i] %in% common_id){
+    mid_gpa <- week6_online$mid_gpa[which(week6_online$Id == week9_online$Id[i])]
+    if (week9_online$final_gpa[i] > mid_gpa){
+      week9_online$grade_shift[i] <- 1
+    } else {
+      week9_online$grade_shift[i] <- 0
+    }
+  }
+}
+week9_online$grade_shift <- as.factor(week9_online$grade_shift)
+```
+
+## attitude of hw
+Easy < Just right < moderate difficulty < difficult < very difficult (1-5)
+```{r}
+week6_online$attitude_hw <- as.factor(week6_online$attitude_hw)
+```
+
+## pstat dept
+```{r}
+pstat_dpt <- c('Actuarial Science', 'Financial Mathematics and Statistics', 
+                'Statistics and Data science')
+
+week6_online$stat <- 2
+for (i in 1:nrow(week6_online)){
+  if (week6_online$first_major[i] %in% pstat_dpt | week6_online$second_major[i] %in% pstat_dpt){
+    week6_online$stat[i] <- 1
+  } else{
+    week6_online$stat[i] <- 0
+  }
+}
+
+week6_online$stat <- as.factor(week6_online$stat)
+
+week9_online$stat <- 2
+for (i in 1:nrow(week9_online)){
+  if (week9_online$first_major[i] %in% pstat_dpt | week9_online$second_major[i] %in% pstat_dpt){
+    week9_online$stat[i] <- 1
+  } else{
+    week9_online$stat[i] <- 0
+  }
+}
+
+week9_online$stat <- as.factor(week9_online$stat)
+```
+
+## indegree of perception as strong course material
+```{r}
+week6_online$indegree <- 0
+
+for (i in 1:nrow(week6_online)){
+  count <- 0
+  id <- week6_online$Id[i]
+  for (j in 10:15){
+    for (z in 1:nrow(week6_online)){
+      if (week6_online[z,j] == id){
+        count <- count + 1
+      }
+    }
+  }
+  week6_online$indegree[i] <- count
+}
+
+
+week9_online$indegree <- 0
+
+for (i in 1:nrow(week9_online)){
+  count <- 0
+  id <- week9_online$Id[i]
+  for (j in 9:14){
+    for (z in 1:nrow(week9_online)){
+      if (week9_online[z,j] == id){
+        count <- count + 1
+      }
+    }
+  }
+  week9_online$indegree[i] <- count
+}
+
+
+## indegree shift
+week9_online$indegree_shift <- 400
+for (i in 1:nrow(week9_online)){
+  if (week9_online$Id[i] %in% common_id){
+    mid_indegree <- week6_online$indegree[which(week6_online$Id == week9_online$Id[i])]
+    week9_online$indegree_shift[i] <- week9_online$indegree[i] - mid_indegree
+  }
+}
+
+
+```
+
+## trimmed dataset
+```{r}
+week9_online_sub = week9_online[week9_online$Id %in% common_id,]
+week6_online_sub = week6_online[week6_online$Id %in% common_id,]
+
+write.csv(week9_online_sub,"/Users/simingsu/Documents/summer_research/social_networking/social_network_analysis/week9_online.csv", row.names = FALSE)
+write.csv(week6_online_sub,"/Users/simingsu/Documents/summer_research/social_networking/social_network_analysis/week6_online.csv", row.names = FALSE)
+```
+
+## convert to igraph
+```{r}
+inter_on6 = read.csv("total_edge_interaction_week6_on.csv")
+strong_on6 = read.csv("total_edge_strong_week6_on.csv")
+inter_on9 = read.csv("total_edge_interaction_week9_on.csv")
+strong_on9 = read.csv("total_edge_strong_week9_on.csv")
+
+inter_on6 = inter_on6[,2:3]
+strong_on6 = strong_on6[,2:3]
+inter_on9 = inter_on9[,2:3]
+strong_on9 = strong_on9[,2:3]
+
+igraph_on6 = graph.edgelist(as.matrix(inter_on6) ,directed=FALSE)
+sgraph_on6 = graph.edgelist(as.matrix(strong_on6) ,directed=FALSE)
+igraph_on9 = graph.edgelist(as.matrix(inter_on9) ,directed=FALSE)
+sgraph_on9 = graph.edgelist(as.matrix(strong_on9) ,directed=FALSE)
+
+igraph_on6 = igraph_on6 %>% simplify()
+sgraph_on6 = sgraph_on6 %>% simplify()
+igraph_on9 = igraph_on9 %>% simplify()
+sgraph_on9 = sgraph_on9 %>% simplify()
+
+V(igraph_on6)$name = V(igraph_on6)
+```
+
+
+## basic informaiton
+```{r}
+table(week6_online_sub$gender)
+table(week9_online_sub$gender)
+
+## some changes from week 6 to week9 
+gender_xy = week6_online_sub %>% inner_join(week9_online_sub, by = "Id")%>% 
+  select(c(Id, gender.x, gender.y)) 
+gender_xy[gender_xy$gender.x != gender_xy$gender.y, ]
+
+## week 6 reponse rate  
+nrow(week6_online)/287
+nrow(week9_online)/287
+
+## density comparison (interaction increase !)
+edge_density(igraph_on6)
+edge_density(igraph_on9)
+
+diameter(igraph_on6)
+diameter(igraph_on9)
+```
+
+
+## data management
+```{r}
+deg_df6 = data.frame(Id = 1:287,
+           degree = degree(igraph_on6))
+deg_df9 = data.frame(Id = 1:287,
+           degree = degree(igraph_on9))
+
+week9_online_sub = week9_online_sub %>% inner_join(deg_df9, by = "Id")
+week6_online_sub = week6_online_sub %>% inner_join(deg_df6, by = "Id")
+```
+
+
+### hypo test
+```{r}
+## gender diff (no difference between gender)
+gender_df6 = week6_online_sub[(week6_online_sub$gender=="Female") | (week6_online_sub$gender=="Male"),]
+kruskal.test(degree ~ gender, data = gender_df6)
+
+## gender diff (no diff)
+gender_df9 = week9_online_sub[(week9_online_sub$gender=="Female") | (week9_online_sub$gender=="Male"),]
+kruskal.test(grade_shift ~ gender, data = gender_df9)
+
+summary(aov(final_gpa ~ gender, data = gender_df9))
+summary(aov(mid_gpa ~ gender, data = gender_df6))
+
+
+## gpa versus pstat department (mid diff, final no)
+kruskal.test(mid_gpa ~ stat, data = week6_online_sub)
+kruskal.test(final_gpa ~ stat, data = week9_online_sub)
+
+
+## gpa versus attitude toward assignment (diff all)
+df_att = week6_online_sub[, c("Id", "attitude_hw")]
+week9_online_sub = week9_online_sub %>% inner_join(df_att, by = "Id")
+
+
+kruskal.test(mid_gpa ~ attitude_hw, data = week6_online_sub)
+kruskal.test(final_gpa ~ attitude_hw, data = week9_online_sub)
+
+
+# visualization
+ggplot(week6_online_sub, aes(x=attitude_hw, y=mid_gpa)) + 
+  geom_boxplot(outlier.colour="red", outlier.shape=8,
+                outlier.size=4)
+
+ggplot(week9_online_sub, aes(x=attitude_hw, y=final_gpa)) + 
+  geom_boxplot(outlier.colour="red", outlier.shape=8,
+                outlier.size=4)
+
+
+## gpa versus indegree (diff all) (strong indegree -> better grade)
+cor.test(week6_online_sub$mid_gpa, week6_online_sub$indegree, method = "pearson")
+cor.test(week9_online_sub$final_gpa, week9_online_sub$indegree, method = "pearson")
+```
+
+
+## comparison
+```{r}
+## difference between degree !!!
+t.test(week6_online_sub$degree, week9_online_sub$degree, paired = TRUE, alternative = "less")
+
+t.test(week6_online_sub$mid_gpa, week9_online_sub$final_gpa, paired = TRUE, alternative = "less")
+
+## number of triads
+## number of mutuals 
+## number of transitivity
+
+
+## closeness week6 vs week9 (nodiff)
+close_df6 = data.frame(Id = 1:287,
+           closeness = closeness(igraph_on6))
+close_df9 = data.frame(Id = 1:287,
+           closeness = closeness(igraph_on9))
+
+week9_online_sub = week9_online_sub %>% inner_join(close_df9, by = "Id")
+week6_online_sub = week6_online_sub %>% inner_join(close_df6, by = "Id")
+
+week6_online_sub$closeness = week6_online_sub$closeness %>% replace(is.na(.), 0)
+week9_online_sub$closeness = week9_online_sub$closeness %>% replace(is.na(.), 0)
+
+
+
+## betweenness week6 vs week9(mean diff has a diff)
+bet_df6 = data.frame(Id = 1:287,
+           between = betweenness(igraph_on6))
+bet_df9 = data.frame(Id = 1:287,
+           between = betweenness(igraph_on9))
+
+week9_online_sub = week9_online_sub %>% inner_join(bet_df9, by = "Id")
+week6_online_sub = week6_online_sub %>% inner_join(bet_df6, by = "Id")
+
+t.test(week6_online_sub$between,
+            week9_online_sub$between,
+            paired = TRUE)
+
+wilcox.test(week6_online_sub$between,
+            week9_online_sub$between,
+            paired = TRUE,
+            exact = FALSE)
+
+```
+
+## Visualization
+```{r}
+## draw neighborhood of 14 
+## number of interaction
+## strong report
+## visualization
+
+which.max(degree(igraph_on6))
+degree(igraph_on9)
+
+
+nei_list = neighbors(igraph_on6, 14)
+V(igraph_on6)$Id
+ V(igraph_on6)[name %in% nei_list]
+# select the nodes having these names
+selnodes <- V(igraph_on6)[name %in% nei_list]
+# get their network neighborhood 
+selegoV <- ego(igraph_on6, order=1, nodes = 14, mode = "all", mindist = 0)
+
+# turn the returned list of igraph.vs objects into a graph
+selegoG <- induced_subgraph(igraph_on6,unlist(selegoV))
+
+# plot the subgraph
+plot(selegoG,vertex.label=V(selegoG)$name)
+```
+
+
+
+## comparison of two weeks 
+```{r}
+plot_graph = function(graph){
+  l = layout_with_fr(graph)
+  l <- norm_coords(l, ymin=-1, ymax=1, xmin=-1, xmax=1) #default -- scaled
+  
+  V(graph)$size = degree(graph) %>% log()*4
+  plot(graph, vertex.label.color="black", 
+  vertex.label.cex=.5, vertex.label.dist=0, edge.curved=0.5,layout = l*1.3, rescale= T)
+}
+
+plot_graph(igraph_on6)
+plot_graph(igraph_on9)
+
+# ## assign colors to different genders
+# vcol=V(inter_new)$gender
+# vcol[(vcol!="Female")&(vcol!="Male")]="gray50"
+# vcol[vcol=="Female"]="tomato"
+# vcol[vcol=="Male"]="gold"
+# V(inter_new)$color = vcol
+# 
+# 
+# ## assgin the degree size
+# V(inter_new)$size = degree(inter_new) %>% log()*4
+# 
+# plot(inter_new, vertex.label.color="black", 
+#      vertex.label.cex=.5, vertex.label.dist=0.5, edge.curved=0.5,layout = l*1.3, rescale= F)
+# 
+# legend("topleft", legend = c("Female","Male","Other"), pch=21,
+#        col=c("tomato","gold","gray50"), pt.bg=c("tomato","gold","gray50"), pt.cex=1, cex=.8, bty="n", ncol=1)
+```
+
+
+## transform it into network object and set attributes
+```{r}
+## transform it into network
+edge_on9<- as.data.frame(get.edgelist(igraph_on9))
+edge_on9 <- edge_on9[edge_on9$V1 %in% common_id,]
+edge_on9 <- edge_on9[edge_on9$V2 %in% common_id,]
+## get to network
+net_on9 = network(edge_on9,
+                  directed = FALSE,
+                  loops = FALSE) 
+
+
+## get network in week6 for ftiting
+edge_on6<- as.data.frame(get.edgelist(igraph_on6))
+edge_on6 <- edge_on9[edge_on6$V1 %in% common_id,]
+edge_on6 <- edge_on9[edge_on6$V2 %in% common_id,]
+## get to network
+net_on6 = network(edge_on6,
+                  directed = FALSE,
+                  loops = FALSE) 
+
+
+
+
+## create attributes dataframe
+net_id9 = data.frame(Id = network.vertex.names(net_on9))
+df_attr9 = left_join(net_id9, week9_online_sub, by = "Id")
+
+## add midterm grade to df_attr
+mid_df = inner_join(net_id9, week6_online_sub, by = "Id")[c("Id","midterm_grade")]
+df_attr9 = left_join(df_attr9, mid_df, by = "Id")
+
+df_attr9$grade_shift = as.numeric(df_attr9$grade_shift)
+df_attr9$attitude_hw = as.numeric(df_attr9$attitude_hw)
+
+
+attr_names = c("Id", "final_grade", "gender", "race", "first_major", "class_standing", "grade_shift", "attitude_hw", "indegree", "midterm_grade")
+
+for (name in attr_names){
+  network::set.vertex.attribute(net_on9, name, df_attr9[[name]])
+}
+```
+
+
+## ERGM
+### triying 1st fit
+```{r}
+fit.01 = ergm(net_on9~ edges + nodefactor('final_grade', base = 2:3) + nodematch('final_grade',diff=T) +
+                nodefactor('gender') + nodematch('gender',diff=T) + 
+                nodefactor('race') + nodematch('race',diff=T))
+summary(fit.01)
+```
+
+change of attributes
+```{r}
+A_grade = c("A-", "A")
+B_grade = c("B+", "B-", "B")
+C_grade = c("C+", "C-", "C")
+
+net_on9%v%"fgrade_level" = ifelse(net_on9%v%"final_grade" %in% A_grade, "A", 
+                                    ifelse(net_on9%v%"final_grade" %in% B_grade, "B",
+                                           ifelse(net_on9%v%"final_grade" %in% C_grade, "C", "F")))
+
+net_on9%v%"mgrade_level" = ifelse(net_on9%v%"midterm_grade" %in% A_grade, "A", 
+                                    ifelse(net_on9%v%"midterm_grade" %in% B_grade, "B",
+                                           ifelse(net_on9%v%"midterm_grade" %in% C_grade, "C", "F")))
+
+net_on9%v%"class_level" = ifelse(net_on9%v%"class_standing" == "Freshman", 0, 
+                                    ifelse(net_on9%v%"class_standing" == "Sophomore", 1,
+                                           ifelse(net_on9%v%"class_standing" == "Junior", 2,
+                                                  ifelse(net_on9%v%"class_standing" == "Senior", 3, 4))))
+
+```
+
+## third fit
+```{r}
+fit.03 = ergm(net_on9~ edges +      ## number of edges in week9
+                nodefactor('final_grade') + nodematch('final_grade', diff = T)+ ## final grade nodefactor and nodematch
+                nodefactor('gender') + nodematch('gender',diff=T) +  ## gender nodefactor and nodematch
+                nodefactor('race') + nodematch('race',diff=T) +  ## race nodefactor and nodematch
+                nodefactor('class_standing')+ nodematch('class_standing',diff=T) +## class standing nodefactor and nodematch
+                edgecov(net_on6) + ## week6 network
+                nodecov('indegree') + ## perception of peers
+                nodefactor("grade_shift") + 
+                absdiff("class_level") 
+                )
+
+summary(fit.03)
+```
+
+```{r}
+fit.03.gof <- gof(fit.03)
+plot(fit.03.gof)
+```
+
+
